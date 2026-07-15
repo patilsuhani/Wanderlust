@@ -4,13 +4,16 @@ const mongoose=require("mongoose");
 const Listing = require("./models/listing.js")
 const path = require("path");
 const methodOverride=require("method-override");
-const ejsMate=require("ejs-mate")
+const ejsMate=require("ejs-mate");
+const wrapAsync = require("./utils/wrapAsync.js");
+const ExpressError = require("./utils/ExpressError.js");
+const {listingSchema}=require("./schema.js");
 
 const MONGO_URL="mongodb://127.0.0.1:27017/wanderlust";
 
 main()
 .then(()=>{
-    console.log("connected to DB");    //written in this type so that this line chan be printed
+    console.log("connected to DB");   
 })
 .catch((err)=>{
     console.log(err);
@@ -32,32 +35,23 @@ app.get("/",(req,res)=>{
     res.send("Hi I am Root");
 })
 
-// app.get("/testListing",async (req,res)=>{
-//     let sampleListing=new Listing({
-//         title:"My New Villa",
-//         description:"By the beach",
-//         price:1200,
-//         location:"Calangute,Goa",
-//         country:"India"
-//     });
-//     await sampleListing.save();//thsi is for the database to store
-//     console.log("Sample was saved"); //this for terminal
-//     res.send("Successful testing")//this for the browser
-// });
 
+const validateListing = (req,res,next)=>{
+ let {error}= listingSchema.validate(req.body);
+    if (error) {
+    let errMsg = error.deatails.map((el)=>el.message).join(",")
+    throw new ExpressError(400, errMsg);
+    }else{
+        next();
+    }
+}
 
 //index route
-app.get("/listings",async(req,res)=>{
+app.get("/listings",wrapAsync(async(req,res)=>{
     const allListings = await Listing.find({});
     res.render("listings/index",{allListings});
-    });
+    }));
 
-//this is also index route but for checking
-// app.listen("/listings",(req,res)=>{
-//     Listing.find({}).then(res=>{
-//         console.log(res);
-//     })
-// })
 
 //New Route
 app.get("/listings/new",(req,res)=>{
@@ -65,41 +59,64 @@ app.get("/listings/new",(req,res)=>{
 })
 
 //Show route 
-app.get("/listings/:id",async(req,res)=>{
+app.get("/listings/:id",wrapAsync(async(req,res)=>{
     let {id}=req.params;
     const listing=await Listing.findById(id);
     res.render("listings/show",{listing})
-})
+}))
 
 //Create Route
-app.post("/listings",async(req,res)=>{
-    // let (title,descriptio,image,price,country,location)=req.body;
-    // let listing =req.body.listing;
-    const newListing= new Listing(req.body.listing)
+app.post("/listings",validateListing,wrapAsync(async(req,res,next)=>{
+    const newListing= new Listing(req.body.listing);
     await newListing.save();
     res.redirect("/listings");
-   // console.log(listing);
-})
+}))
+
+
+//just for debugging
+// app.get("/listings", async (req, res) => {
+//     const allListings = await Listing.find({});
+
+//     allListings.forEach((listing) => {
+//         console.log(
+//             listing._id,
+//             listing.title,
+//             listing.price
+//         );
+//     });
+
+//     res.render("listings/index", { allListings });
+// });
 
 //edit route
-app.get("/listings/:id/edit",async(req,res)=>{
+app.get("/listings/:id/edit",wrapAsync(async(req,res)=>{
     let {id}=req.params;
     const listing=await Listing.findById(id);
     res.render("listings/edit",{listing});
-})
+}))
+
 //update route
-app.put("/listings/:id",async(req,res)=>{
+app.put("/listings/:id",validateListing,wrapAsync(async(req,res)=>{
     let {id} = req.params;
     await Listing.findByIdAndUpdate(id,{...req.body.listing});
     res.redirect(`/listings/${id}`);
-})
+}))
 
 //Delete route
-app.delete("/listings/:id",async(req,res)=>{
+app.delete("/listings/:id",wrapAsync(async(req,res)=>{
     let {id}=req.params;
     let deletedListing=await Listing.findByIdAndDelete(id);
     console.log(deletedListing);
     res.redirect("/listings");
+}));
+
+app.use((req, res, next) => {
+    next(new ExpressError(404, "Page not found!"));
+});
+
+app.use((err, req, res, next) => {
+    let { statusCode = 500, message = "Something went wrong" } = err;
+    res.status(statusCode).render("error.ejs", { message });
 });
 
 app.listen(8080,()=>{
